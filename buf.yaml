@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: proto
+deps:
+  - buf.build/bufbuild/protovalidate
+  - buf.build/cludden/protoc-gen-go-temporal
+lint:
+  use:
+    - BASIC
+breaking:
+  use:
+    - FILE

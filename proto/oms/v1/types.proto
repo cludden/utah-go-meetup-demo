@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package oms.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// CustomerAction enumerates the set of supported customer actions
+enum CustomerAction {
+  CUSTOMER_ACTION_UNSPECIFIED = 0;
+  CUSTOMER_ACTION_CANCEL = 1;
+  CUSTOMER_ACTION_AMEND = 2;
+  CUSTOMER_ACTION_TIMED_OUT = 3;
+}
+
+// holds a set of items that will be delivered in one shipment (due to location and stock level).
+message Fulfillment {
+  string order_id = 1;
+  string customer_id = 2;
+  string id = 3;
+  repeated Item items = 4;
+  string location = 5;
+  FulfillmentStatus status = 6;
+  Payment payment = 7;
+  Shipment shipment = 8;
+}
+
+// FulfillmentStatus enumerates the set of supported fulfillment statuses
+enum FulfillmentStatus {
+  FULFILLMENT_STATUS_UNSPECIFIED = 0;
+  FULFILLMENT_STATUS_UNAVAILABLE = 1;
+  FULFILLMENT_STATUS_PENDING = 2;
+  FULFILLMENT_STATUS_PROCESSING = 3;
+  FULFILLMENT_STATUS_COMPLETED = 4;
+  FULFILLMENT_STATUS_CANCELLED = 5;
+  FULFILLMENT_STATUS_FAILED = 6;
+}
+
+// Item represents an item being ordered
+message Item {
+  string sku = 1 [(buf.validate.field).required = true];
+  string description = 2;
+  int32 quantity = 3 [(buf.validate.field).int32 = {gt: 0}];
+}
+
+// OrderStatus holds the status of an Order workflow.
+message Order {
+  string id = 1;
+  string customer_id = 2;
+  google.protobuf.Timestamp received_at = 3;
+  OrderStatus status = 4;
+  repeated Fulfillment fulfillments = 5;
+}
+
+// OrderStatus enumerates the set of supported order statuses
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_PROCESSING = 2;
+  ORDER_STATUS_CUSTOMER_ACTION_REQUIRED = 3;
+  ORDER_STATUS_COMPLETED = 4;
+  ORDER_STATUS_FAILED = 5;
+  ORDER_STATUS_CANCELLED = 6;
+  ORDER_STATUS_TIMED_OUT = 7;
+}
+
+// PaymentStatus enumerates the set of supported payment statuses
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_SUCCESS = 2;
+  PAYMENT_STATUS_FAILED = 3;
+}
+
+// Payment holds the status of a Payment.
+message Payment {
+  int32 sub_total = 1;
+  int32 tax = 2;
+  int32 shipping = 3;
+  int32 total = 4;
+  PaymentStatus status = 5;
+}
+
+// Shipment describes the output from a Status query
+message Shipment {
+  string courier_reference = 1;
+  string id = 2;
+  repeated Item items = 3;
+  ShipmentStatus status = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+enum ShipmentStatus {
+  SHIPMENT_STATUS_UNSPECIFIED = 0;
+  SHIPMENT_STATUS_PENDING = 1;
+  SHIPMENT_STATUS_BOOKED = 2;
+  SHIPMENT_STATUS_DISPATCHED = 3;
+  SHIPMENT_STATUS_DELIVERED = 4;
+}

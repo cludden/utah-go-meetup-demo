@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package oms.shipment.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "oms/v1/types.proto";
+import "temporal/v1/temporal.proto";
+
+service Api {
+  // returns information about an existing shipment
+  rpc GetShipment(GetShipmentInput) returns (GetShipmentResult);
+
+  // returns a list of existing shipments
+  rpc ListShipments(ListShipmentsInput) returns (ListShipmentsResult);
+
+  // processes a carrier update
+  rpc UpdateShipmentStatus(UpdateShipmentStatusInput) returns (google.protobuf.Empty);
+}
+
+service Worker {
+  option (temporal.v1.service) = {task_queue: "shipment-v1"};
+
+  // books shipment with carrier and persists record to database
+  rpc CreateShipment(CreateShipmentInput) returns (CreateShipmentResult) {
+    option (temporal.v1.activity) = {
+      retry_policy: {
+        max_interval: {seconds: 5}
+      }
+      start_to_close_timeout: {seconds: 5}
+    };
+  }
+
+  // process a shipment
+  rpc Shipment(CreateShipmentInput) returns (CreateShipmentResult) {
+    option (temporal.v1.workflow) = {
+      name: "shipment.v1.Shipment"
+      id: 'Shipment:${! id.or(throw("id required")) }'
+      query: {ref: "GetStatus"}
+      search_attributes:
+        'CustomerId = customerId \n'
+        'FulfillmentId = fulfillmentId \n'
+        'OrderId = orderId \n'
+      update: {ref: "UpdateShipmentStatus"}
+    };
+  }
+
+  // notify the requestor of an update to a shipment's status.
+  rpc ShipmentStatusUpdated(UpdateShipmentStatusInput) returns (google.protobuf.Empty) {
+    option (temporal.v1.signal) = {
+      name: "shipment.v1.ShipmentStatusUpdated"
+    };
+  }
+
+  // get shipment status
+  rpc GetStatus(google.protobuf.Empty) returns (GetShipmentResult) {
+    option (temporal.v1.query) = {
+      name: "shipment.v1.Status"
+    };
+  }
+
+  // process shiptment status update from carrier
+  rpc UpdateShipmentStatus(UpdateShipmentStatusInput) returns (google.protobuf.Empty) {
+    option (temporal.v1.activity) = {
+      start_to_close_timeout: {seconds: 5}
+    };
+    option (temporal.v1.update) = {
+      name: "shipment.v1.UpdateShipmentStatus"
+    };
+  }
+}
+
+// CreateShipmentInput describes the input to a CreateShipment operation
+message CreateShipmentInput {
+  string customer_id = 1 [(buf.validate.field).required = true];
+  string fulfillment_id = 2 [(buf.validate.field).required = true];
+  string id = 3 [(buf.validate.field).required = true];
+  repeated oms.v1.Item items = 4 [(buf.validate.field).required = true];
+  string order_id = 5 [(buf.validate.field).required = true];
+  string requestor_wid = 6 [(buf.validate.field).required = true];
+}
+
+// CreateShipmentResult describes the output from a CreateShipment operation
+message CreateShipmentResult {
+  string courier_reference = 1;
+}
+
+// GetShipmentInput describes the input to a GetShipment operation
+message GetShipmentInput {
+  string id = 1 [(buf.validate.field).required = true];
+}
+
+// GetShipmentResult describes the output from a GetShipment operation
+message GetShipmentResult {
+  oms.v1.Shipment shipment = 1;
+}
+
+// ListShipmentsInput describes the input to a ListShipments operation
+message ListShipmentsInput {}
+
+// ListShipmentsResult describes the output from a ListShipments operation
+message ListShipmentsResult {
+  repeated oms.v1.Shipment shipments = 1;
+}
+
+// UpdateShipmentStatusInput describes the input to an UpdateShipmentStatus
+// operation
+message UpdateShipmentStatusInput {
+  string shipment_id = 1 [(buf.validate.field).required = true];
+  oms.v1.ShipmentStatus status = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp updated_at = 3;
+}

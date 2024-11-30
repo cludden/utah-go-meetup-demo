@@ -1,0 +1,53 @@
+version: v2
+managed:
+  enabled: true
+  disable:
+    - file_option: go_package
+      module: buf.build/alta/protopatch
+
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+
+    - file_option: go_package
+      module: buf.build/cludden/protoc-gen-go-temporal
+
+  override:
+    - file_option: go_package_prefix
+      value: github.com/temporalio/reference-app-orders-go/gen
+
+inputs:
+  - directory: proto
+  
+plugins:
+  - local: protoc-gen-go
+    out: gen
+    opt:
+      - paths=source_relative
+
+  - local: protoc-gen-connect-go
+    out: gen
+    opt:
+      - paths=source_relative
+  
+  - local: protoc-gen-go_temporal
+    out: gen
+    opt: 
+      - cli-categories=true
+      - cli-enabled=true
+      - docs-out=./API.md
+      - enable-codec=true
+      - enable-patch-support=true
+      - paths=source_relative
+      - workflow-update-enabled=true
+    strategy: all
+
+  - remote: buf.build/bufbuild/es:v1.10.0
+    out: web/src/gen
+    opt:
+      - target=ts
+
+  - remote: buf.build/connectrpc/es:v1.5.0
+    out: web/src/gen
+    opt: 
+      - target=ts
+

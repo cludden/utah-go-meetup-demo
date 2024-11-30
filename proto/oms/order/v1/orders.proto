@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package oms.order.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "oms/v1/types.proto";
+import "temporal/v1/temporal.proto";
+
+service Api {
+  // submit a new order
+  rpc CreateOrder(CreateOrderInput) returns (CreateOrderResult);
+
+  // returns information about an existing order
+  rpc GetOrder(GetOrderInput) returns (GetOrderResult) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // returns a list of existing orders
+  rpc ListOrders(google.protobuf.Empty) returns (ListOrdersResult) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // updates the status of an exsiting order
+  rpc UpdateOrderStatus(UpdateOrderStatusInput) returns (google.protobuf.Empty);
+
+  // process a customer action
+  rpc CustomerAction(CustomerActionInput) returns (google.protobuf.Empty);
+}
+
+service Worker {
+  option (temporal.v1.service) = {task_queue: "order-v1"};
+
+  // initialize a new order 
+  rpc CreateOrder(CreateOrderInput) returns (CreateOrderResult) {
+    option (temporal.v1.activity) = {
+      name: "order.v1.CreateOrder"
+      schedule_to_close_timeout: {seconds: 5}
+    };
+  }
+
+  // process a customer action
+  rpc CustomerAction(CustomerActionInput) returns (google.protobuf.Empty) {
+    option (temporal.v1.signal) = {
+      name: "order.v1.CustomerAction"
+    };
+  }
+
+  // returns information about the order
+  rpc GetStatus(google.protobuf.Empty) returns (GetOrderResult) {
+    option (temporal.v1.query) = {
+      name: "order.v1.GetStatus"
+    };
+  }
+
+  // manage the lifecycle of an order
+  rpc Order(CreateOrderInput) returns (CreateOrderResult) {
+    option (temporal.v1.workflow) = {
+      name: "order.v1.Order"
+      id: 'Order:${! id.or(throw("id required")) }'
+      id_reuse_policy: WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
+      query: {ref: "GetStatus"}
+      search_attributes:
+        'CustomerId = customerId \n'
+        'OrderId = id \n'
+      signal: {ref: "CustomerAction"}
+      signal: {ref: "oms.shipment.v1.Worker.ShipmentStatusUpdated"}
+      update: {ref: "UpdateOrderStatus"}
+    };
+  }
+
+  // reserves items to satisfy an order and returns a list of reservations for the items
+  // Any unavailable items will be returned in a Reservation with Available set to false.
+  // In a real system this would involve an inventory database of some kind.
+  // For our purposes we just split orders arbitrarily.
+  rpc ReserveItems(ReserveItemsInput) returns (ReserveItemsResult) {
+    option (temporal.v1.activity) = {
+      name: "order.v1.ReserveItems"
+      schedule_to_close_timeout: {seconds: 5}
+    };
+  }
+
+  // updates the order status in the database
+  rpc UpdateOrderStatus(UpdateOrderStatusInput) returns (google.protobuf.Empty) {
+    option (temporal.v1.update) = {
+      name: "order.v1.UpdateOrderStatus"
+    };
+    option (temporal.v1.activity) = {
+      name: "order.v1.UpdateOrderStatus"
+      start_to_close_timeout: {seconds: 30}
+    };
+  }
+}
+
+// CreateOrderInput describes the input to an CreateOrder workflow
+message CreateOrderInput {
+  string id = 1 [(buf.validate.field).required = true];
+  string customer_id = 2 [(buf.validate.field).required = true];
+  repeated oms.v1.Item items = 3 [(buf.validate.field).required = true];
+}
+
+// CreateOrderResult describes the output from an CreateOrder workflow
+message CreateOrderResult {
+  oms.v1.Order order = 1;
+}
+
+// CustomerActionInput describes the input to a CustomerAction signal
+message CustomerActionInput {
+  string id = 1 [(buf.validate.field).required = true];
+  oms.v1.CustomerAction action = 2 [(buf.validate.field).required = true];
+}
+
+// GetOrderInput describes the input to a GetOrderStatus query
+message GetOrderInput {
+  string id = 1 [(buf.validate.field).required = true];
+}
+
+// GetOrderResult describes the output from a GetOrderStatus query
+message GetOrderResult {
+  oms.v1.Order order = 1;
+}
+
+// ListOrdersResult describes the output from a ListOrders operation
+message ListOrdersResult {
+  repeated oms.v1.Order orders = 1;
+}
+
+// ReserveItemsInput describes the input to a ReserveItems activity
+message ReserveItemsInput {
+  string order_id = 1 [(buf.validate.field).required = true];
+  string customer_id = 2 [(buf.validate.field).required = true];
+  repeated oms.v1.Item items = 3;
+}
+
+// ReserveItemsResult describes the output from a ReserveItems activity
+message ReserveItemsResult {
+  repeated oms.v1.Fulfillment fulfillments = 1;
+}
+
+// UpdateOrderStatusInput describes the input to an UpdateOrderStatus activity
+message UpdateOrderStatusInput {
+  string id = 1 [(buf.validate.field).required = true];
+  oms.v1.OrderStatus status = 2 [(buf.validate.field).required = true];
+}

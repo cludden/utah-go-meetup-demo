@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package oms.billing.v1;
+
+import "buf/validate/validate.proto";
+import "oms/v1/types.proto";
+import "temporal/v1/temporal.proto";
+
+service Api {
+  // process an order from a customer
+  rpc Charge(ChargeInput) returns (ChargeResult);
+}
+
+service Worker {
+  option (temporal.v1.service) = {task_queue: "billing-v1"};
+
+  // durably process an order from a customer
+  rpc Charge(ChargeInput) returns (ChargeResult) {
+    option (temporal.v1.workflow) = {
+      name: "billing.v1.Charge"
+      id: 'Charge:${! idempotencyKey.or(uuid_v4()) }'
+      search_attributes:
+        'CustomerId = customerId \n'
+        'FulfillmentId = fulfillmentId \n'
+        'OrderId = orderId \n'
+    };
+  }
+
+  // determines whether the charge is fraudulent 
+  rpc CheckFraud(CheckFraudInput) returns (CheckFraudResult) {
+    option (temporal.v1.activity) = {
+      retry_policy: {
+        initial_interval: {seconds: 5}
+        max_interval: {seconds: 5}
+      }
+      start_to_close_timeout: {seconds: 300}
+    };
+  }
+
+  // generates an invoice file
+  rpc GenerateInvoice(GenerateInvoiceInput) returns (GenerateInvoiceResult) {
+    option (temporal.v1.activity) = {
+      schedule_to_close_timeout: {seconds: 30}
+    };
+  }
+
+  // processes the customer payment
+  rpc ProcessPayment(ProcessPaymentInput) returns (ProcessPaymentResult) {
+    option (temporal.v1.activity) = {
+      start_to_close_timeout: {seconds: 120}
+    };
+  }
+}
+
+// ChargeInput is the input for the Charge workflow.
+message ChargeInput {
+  string customer_id = 1 [(buf.validate.field).required = true];
+  string order_id = 5 [(buf.validate.field).required = true];
+  string fulfillment_id = 6 [(buf.validate.field).required = true];
+  string reference = 2 [(buf.validate.field).required = true];
+  repeated oms.v1.Item items = 3 [(buf.validate.field).required = true];
+  string idempotency_key = 4;
+}
+
+// ChargeResult is the result for the Charge workflow.
+message ChargeResult {
+  string invoice_reference = 1;
+  int32 sub_total = 2;
+  int32 shipping = 3;
+  int32 tax = 4;
+  int32 total = 5;
+  bool success = 6;
+  string auth_code = 7;
+}
+
+// CheckFraudInput describes the input to a CheckFraud activity
+message CheckFraudInput {
+  string customer_id = 1 [(buf.validate.field).required = true];
+  int32 charge = 2 [(buf.validate.field).int32 = {gt: 0}];
+}
+
+// CheckFraudResult describes the output from a CheckFraud activity
+message CheckFraudResult {
+  bool declined = 1;
+}
+
+// GenerateInvoiceInput describes the input to a GenerateInvoice activity
+message GenerateInvoiceInput {
+  string customer_id = 1 [(buf.validate.field).required = true];
+  string reference = 2 [(buf.validate.field).required = true];
+  repeated oms.v1.Item items = 3 [(buf.validate.field).required = true];
+}
+
+// GenerateInvoiceResult describes the output from a GenerateInvoice activity
+message GenerateInvoiceResult {
+  string invoice_reference = 1;
+  int32 sub_total = 2;
+  int32 shipping = 3;
+  int32 tax = 4;
+  int32 total = 5;
+}
+
+// ProcessPaymentInput describes the input to a ProcessPayment activity
+message ProcessPaymentInput {
+  string customer_id = 1 [(buf.validate.field).required = true];
+  string reference = 2 [(buf.validate.field).required = true];
+  int32 charge = 3 [(buf.validate.field).int32 = {gt: 0}];
+}
+
+// ProcessPaymentResult describes the output from a ProcessPayment activity
+message ProcessPaymentResult {
+  bool success = 1;
+  string auth_code = 2;
+}

@@ -1,0 +1,82 @@
+up:
+  - go: 1.23
+  - node: auto
+  - github-release:
+      - bufbuild/buf: 1.47.2
+      - cludden/protoc-gen-go-temporal: 1.14.3
+      - golangci/golangci-lint: 1.58.0
+      - protocolbuffers/protobuf-go: 1.35.2
+      - temporalio/cli: 1.1.1
+      - vektra/mockery: 2.49.1
+  - brew:
+      - pnpm
+  - custom:
+      name: "protoc-gen-connect-go"
+      meet: |
+        CGO_ENABLED=0 go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.17.0
+  - custom:
+      name: "refreshing generated code"
+      meet: |
+        omni gen
+  - custom:
+      name: "install js dependencies"
+      meet: |
+        cd web && npm install
+  - custom:
+      name: "Install oms"
+      meet: |
+        CGO_ENABLED=0 go build -trimpath -buildvcs=false -o ${GOPATH%%:*}/bin/oms ./cmd/oms
+
+commands:
+  gen:
+    desc: refresh generated code
+    run: |
+      rm -rf ./gen/*
+      buf generate
+      buf dep update
+      mockery --quiet
+      go mod tidy
+  
+  temporal:
+    desc: run local temporal server
+    run: |
+      trap 'kill "${temporal_pid}"; wait "${temporal_pid}"' SIGINT SIGTERM
+
+      temporal server start-dev  \
+        --db-filename temporal-persistence.db \
+        --dynamic-config-value "frontend.enableUpdateWorkflowExecution=true" \
+        --dynamic-config-value "frontend.enableUpdateWorkflowExecutionAsyncAccepted=true" &
+      temporal_pid="$!"
+
+      sleep 2
+      temporal operator search-attribute create --name CustomerId --type Keyword
+      temporal operator search-attribute create --name FulfillmentId --type Keyword
+      temporal operator search-attribute create --name OrderId --type Keyword
+
+      wait "${temporal_pid}"
+
+  api:
+    desc: run api server
+    run: |
+      go run ./cmd/... api --encryption-key utahgo
+
+  codec:
+    desc: run codec server
+    run:
+      go run ./cmd/... codec-server --encryption-key utahgo -u http://localhost:8233
+    
+  reset:
+    desc: clear persisted data
+    run:
+      /bin/bash -c "if [ -f api-store.db ]; then rm api-store.db; fi; if [ -f temporal-persistence.db ]; then rm temporal-persistence.db; fi;"
+
+  web:
+    desc: run web
+    run: |
+      cd web && npm run dev
+    
+  workers:
+    desc: run workers
+    run: |
+      go run ./cmd/... worker --encryption-key utahgo
+      

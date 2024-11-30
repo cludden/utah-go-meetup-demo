@@ -1,0 +1,18 @@
+with-expecter: true
+packages:
+  github.com/temporalio/reference-app-orders-go/gen/oms/billing/v1:
+    config:
+      dir: mocks/gen/oms/billing/v1
+      outpkg: billingv1mocks
+      replace-type:
+        - go.temporal.io/sdk/internal=go.temporal.io/sdk/workflow
+    interfaces:
+      WorkerClient: {}
+  github.com/temporalio/reference-app-orders-go/gen/oms/shipment/v1:
+    config:
+      dir: mocks/gen/oms/shipment/v1
+      outpkg: shipmentv1mocks
+      replace-type:
+        - go.temporal.io/sdk/internal=go.temporal.io/sdk/client
+    interfaces:
+      WorkerClient: {}

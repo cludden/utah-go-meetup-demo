@@ -1,0 +1,86 @@
+
+services:
+  billing:
+    build:
+      target: oms-worker
+    command: ["billing", "service", "--encryption-key=UtahGoMeetup"]
+    # depends_on: ["temporal"]
+    environment:
+      BILLING_API_PORT: 8081
+      BIND_ON_IP: 0.0.0.0
+      FRAUD_API_URL: http://fraud:8084
+      TEMPORAL_ADDRESS: host.docker.internal:7233
+    ports:
+      - 8081:8081
+
+  fraud:
+    build:
+      target: oms-worker
+    command: ["fraud", "service"]
+    environment:
+      BIND_ON_IP: 0.0.0.0
+      FRAUD_API_PORT: 8084
+      TEMPORAL_ADDRESS: host.docker.internal:7233
+    ports:
+      - 8084:8084
+
+  order:
+    build:
+      target: oms-worker
+    command: ["order", "service", "--encryption-key=UtahGoMeetup"]
+    # depends_on: ["temporal"]
+    environment:
+      BILLING_API_URL: http://billing-api:8081
+      BIND_ON_IP: 0.0.0.0
+      DATA_DIR: /data
+      ORDER_API_PORT: 8082
+      SHIPMENT_API_URL: http://shipment:8083
+      TEMPORAL_ADDRESS: host.docker.internal:7233
+    ports:
+      - 8082:8082
+    volumes:
+      - order-data:/data
+
+  shipment:
+    build:
+      target: oms-worker
+    command: ["shipment", "service", "--encryption-key=UtahGoMeetup"]
+    # depends_on: ["temporal"]
+    environment:
+      BILLING_API_URL: http://billing:8081
+      BIND_ON_IP: 0.0.0.0
+      DATA_DIR: /data
+      SHIPMENT_API_PORT: 8083
+      TEMPORAL_ADDRESS: host.docker.internal:7233
+      UNKNOWN_ITEMS: Jordan,Nike
+    ports:
+      - 8083:8083
+    volumes:
+      - shipment-data:/data
+
+  codec:
+    build:
+      target: oms-worker
+    command: ["codec-server", "-p", "8089", "-u", "http://localhost:8233"]
+    ports:
+      - 8089:8089
+    restart: on-failure
+
+  web:
+    build:
+      context: ./web
+    depends_on: ["order", "shipment"]
+    environment:
+      - ORIGIN=http://localhost:3000
+      - BILLING_API_URL=http://billing:8081
+      - FRAUD_API_URL=http://fraud:8084
+      - ORDER_API_URL=http://order:8082
+      - SHIPMENT_API_URL=http://shipment:8083
+    ports:
+      - "3000:3000"
+    restart: on-failure
+
+volumes:
+  order-data:
+  shipment-data:
+  temporal-data:
